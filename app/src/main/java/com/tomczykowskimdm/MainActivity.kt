@@ -1,4 +1,4 @@
-package com.example.tomczykowskimdm
+package com.tomczykowskimdm
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -10,9 +10,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.UserManager
@@ -38,18 +35,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -62,6 +57,8 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+
 
 data class DeviceCommand(
     val lock: Boolean = false,
@@ -81,6 +78,7 @@ data class DeviceCommand(
 data class GeofenceCommand(val lat: Double, val lon: Double, val radius: Double)
 
 class MainActivity : ComponentActivity() {
+
 
     companion object { private const val TAG = "MDM" }
 
@@ -161,6 +159,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun ensureRuntimePermissions() {
+        val toAsk = mutableListOf<String>()
+        val svc = Intent(this, TelemetryService::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            toAsk += android.Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            toAsk += android.Manifest.permission.ACCESS_COARSE_LOCATION
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            toAsk += android.Manifest.permission.POST_NOTIFICATIONS
+        }
+        if (toAsk.isNotEmpty()) {
+            requestPermissions(toAsk.toTypedArray(), 1001)
+        }
+    }
+
+
+
     private fun ensureAdminActive() {
         if (!dpm.isAdminActive(adminComponent)) {
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
@@ -237,14 +257,16 @@ class MainActivity : ComponentActivity() {
         val scale = batteryIntent?.getIntExtra("scale", 100) ?: 100
         val batteryPct = if (scale > 0) (level * 100) / scale else 0
         val rooted = try { listOf("/system/bin/su", "/system/xbin/su").any { File(it).exists() } } catch (_: Exception) { false }
-        val locationMap = try { collectLocation() } catch (_: Exception) { emptyMap<String, Any?>() }
+
+        // >>> NOWE: Fused location
+        val locationMap = try { getFreshLocationMap() } catch (_: Exception) { emptyMap<String, Any?>() }
 
         val baseMap = mutableMapOf<String, Any?>(
             "android_version" to androidVersion,
             "battery" to batteryPct,
             "rooted" to rooted
-        )
-        baseMap.putAll(locationMap)
+        ).apply { putAll(locationMap) }
+
 
         val mapType = Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
         return moshi.adapter<Map<String, Any?>>(mapType).toJson(baseMap)
@@ -278,7 +300,7 @@ class MainActivity : ComponentActivity() {
             }
             if (version != lastCommandVersion) lastCommandVersion = version else Log.d(TAG, "No version change: $version")
 
-            val cmd = try { moshi.adapter(DeviceCommand::class.java).fromJson(body) } catch (e: Exception) { null }
+            val cmd = try { moshi.adapter(DeviceCommand::class.java).fromJson(body) } catch (_: Exception) { null }
             if (cmd == null) return@withLock "Nieparsowalny JSON komend"
 
             // Instalacja APK – jedna, z retry
@@ -322,12 +344,11 @@ class MainActivity : ComponentActivity() {
             }
             else -> {
                 prefs.edit { putBoolean("blocked", false) }
-                sendBroadcast(Intent("com.example.tomczykowskimdm.UNLOCK"))
+                sendBroadcast(Intent("com.tomczykowskimdm.UNLOCK"))
                 try { stopLockTask() } catch (_: Exception) {}
             }
         }
 
-        // Kamera
         try { dpm.setCameraDisabled(admin, cmd.disable_camera) }
         catch (se: SecurityException) { Log.w(TAG, "setCameraDisabled blocked: ${se.message}") }
 
@@ -339,13 +360,11 @@ class MainActivity : ComponentActivity() {
             })
         }
 
-        // Tethering
         if (cmd.disable_tethering)
             dpm.addUserRestriction(admin, UserManager.DISALLOW_CONFIG_TETHERING)
         else
             dpm.clearUserRestriction(admin, UserManager.DISALLOW_CONFIG_TETHERING)
 
-        // Blokowanie aplikacji
         cmd.blocked_apps?.forEach { pkg ->
             try { dpm.setApplicationHidden(admin, pkg, true) }
             catch (e: Exception) { Log.w(TAG, "Hide $pkg failed: ${e.message}") }
@@ -357,6 +376,7 @@ class MainActivity : ComponentActivity() {
     private fun sha256(bytes: ByteArray) =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
+    @SuppressLint("RequestInstallPackagesPolicy")
     private suspend fun downloadAndInstallApkWithRetry(
         deviceId: String,
         token: String,
@@ -419,36 +439,51 @@ class MainActivity : ComponentActivity() {
 
     /** ======= LOCATION ======= */
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private suspend fun collectLocation(): Map<String, Any?> = suspendCancellableCoroutine { cont ->
-        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+    // Fused: spróbuj lastLocation, potem erzac „current” z wysoką dokładnością
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun getFreshLocationMap(timeoutMs: Long = 5000): Map<String, Any?> {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED) {
-            cont.resume(emptyMap()) {}; return@suspendCancellableCoroutine
-        }
-        val provider = LocationManager.GPS_PROVIDER
-        val last = lm.getLastKnownLocation(provider)
-        if (last != null) {
-            cont.resume(mapOf("location" to mapOf("lat" to last.latitude, "lon" to last.longitude, "accuracy" to last.accuracy))) {}
-        } else {
-            val listener = object : LocationListener {
-                override fun onLocationChanged(location: Location) {
-                    if (cont.isActive) {
-                        cont.resume(mapOf("location" to mapOf("lat" to location.latitude, "lon" to location.longitude, "accuracy" to location.accuracy))) {}
-                        lm.removeUpdates(this)
-                    }
-                }
-                override fun onProviderEnabled(provider: String) {}
-                override fun onProviderDisabled(provider: String) {}
-                @Suppress("DEPRECATION") override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-            }
-            lm.requestLocationUpdates(provider, 0L, 0f, listener)
-            cont.invokeOnCancellation { lm.removeUpdates(listener) }
-            CoroutineScope(Dispatchers.Default).launch {
-                delay(3000)
-                if (cont.isActive) { cont.resume(emptyMap()) {}; lm.removeUpdates(listener) }
+            != PackageManager.PERMISSION_GRANTED) return emptyMap()
+
+        val fused = LocationServices.getFusedLocationProviderClient(this)
+        val lastLoc = try { fused.lastLocation.await() } catch (_: Exception) { null }
+
+
+        // 1) Spróbuj lastLocation przez callback
+        val last = withTimeoutOrNull(1500) {
+            suspendCancellableCoroutine<android.location.Location?> { cont ->
+                fused.lastLocation
+                    .addOnSuccessListener { loc -> if (cont.isActive) cont.resume(loc, null) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null, null) }
             }
         }
+        if (last != null && last.accuracy <= 100f) {
+            return mapOf("location" to mapOf(
+                "lat" to last.latitude,
+                "lon" to last.longitude,
+                "accuracy" to last.accuracy
+            ))
+        }
+
+        // 2) Wymuś świeży fix
+        val cts = CancellationTokenSource()
+        val fresh = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<android.location.Location?> { cont ->
+                fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
+                    .addOnSuccessListener { loc -> if (cont.isActive) cont.resume(loc, null) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null, null) }
+            }
+        }
+
+        return if (fresh != null)
+            mapOf("location" to mapOf(
+                "lat" to fresh.latitude,
+                "lon" to fresh.longitude,
+                "accuracy" to fresh.accuracy
+            ))
+        else emptyMap()
+    }
+
     }
 
     /** ======= UTILS ======= */
@@ -461,4 +496,4 @@ class MainActivity : ComponentActivity() {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return R * c
     }
-}
+

@@ -1,4 +1,4 @@
-package com.example.tomczykowskimdm
+package com.tomczykowskimdm
 
 import android.annotation.SuppressLint
 import android.app.admin.DevicePolicyManager
@@ -18,7 +18,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
-import com.example.tomczykowskimdm.databinding.ActivityLockedBinding
+import com.tomczykowskimdm.databinding.ActivityLockedBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -30,6 +30,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class LockedActivity : ComponentActivity() {
+
 
     enum class LockMode { LOCK, BLOCKED }
     private var mode: LockMode = LockMode.LOCK
@@ -113,12 +114,12 @@ class LockedActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(
                     unlockReceiver,
-                    IntentFilter("com.example.tomczykowskimdm.UNLOCK"),
+                    IntentFilter("com.tomczykowskimdm.UNLOCK"),
                     RECEIVER_NOT_EXPORTED
                 )
             } else {
                 @Suppress("DEPRECATION")
-                registerReceiver(unlockReceiver, IntentFilter("com.example.tomczykowskimdm.UNLOCK"))
+                registerReceiver(unlockReceiver, IntentFilter("com.tomczykowskimdm.UNLOCK"))
             }
         } catch (_: Exception) {}
         try { startLockTask() } catch (_: Exception) {}

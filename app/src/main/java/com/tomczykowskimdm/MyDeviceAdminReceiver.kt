@@ -1,4 +1,4 @@
-package com.example.tomczykowskimdm
+package com.tomczykowskimdm
 
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager

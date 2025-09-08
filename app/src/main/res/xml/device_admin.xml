@@ -6,5 +6,7 @@
         <reset-password />
         <disable-camera />
         <disable-keyguard-features />
+        <limit-password />
+        <watch-login />
     </uses-policies>
 </device-admin>

@@ -1,4 +1,4 @@
-package com.example.tomczykowskimdm
+package com.tomczykowskimdm
 
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
