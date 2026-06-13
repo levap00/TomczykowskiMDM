@@ -2,22 +2,22 @@ package com.tomczykowskimdm
 
 import android.app.*
 import android.content.*
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.location.Location
 import android.os.*
+import android.annotation.SuppressLint
+import android.provider.Settings
+import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.tasks.await
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.location.Location
-import com.google.android.gms.location.*
-import android.os.Build
-import android.annotation.SuppressLint
-import android.provider.Settings
-import androidx.annotation.RequiresPermission
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.tasks.await
 
 class TelemetryService : Service() {
 
@@ -36,11 +36,30 @@ class TelemetryService : Service() {
             .setContentText("Wysyłanie stanu baterii i lokalizacji…")
             .setOngoing(true)
             .build()
-        startForeground(notifId, notif)
 
-        scope.launch {
-            telemetryLoop()
+        // Android 14+ (targetSdk 35): 2-arg startForeground uses all manifest-declared types,
+        // requiring location permission even when it hasn't been granted yet.
+        // Use 3-arg variant so we only claim location type when the permission is held.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val hasLocation = ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            val fgsType = if (hasLocation) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            }
+            startForeground(notifId, notif, fgsType)
+        } else {
+            startForeground(notifId, notif)
         }
+
+        scope.launch { telemetryLoop() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
