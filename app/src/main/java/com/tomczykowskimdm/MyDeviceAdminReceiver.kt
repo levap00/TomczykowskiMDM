@@ -76,11 +76,6 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
             Log.w(TAG, "Brak ADMIN_EXTRAS_BUNDLE w provisioning intent")
         }
 
-        // Uruchom główną aktywność po zakończeniu provisioningu
-        context.startActivity(
-            Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
     }
 
     @RequiresApi(Build.VERSION_CODES.P)
