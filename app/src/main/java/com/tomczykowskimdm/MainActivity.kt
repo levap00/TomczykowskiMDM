@@ -58,8 +58,6 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-
-
 data class DeviceCommand(
     val lock: Boolean = false,
     val blocked: Boolean = false,
@@ -78,7 +76,6 @@ data class DeviceCommand(
 data class GeofenceCommand(val lat: Double, val lon: Double, val radius: Double)
 
 class MainActivity : ComponentActivity() {
-
 
     companion object { private const val TAG = "MDM" }
 
@@ -122,8 +119,13 @@ class MainActivity : ComponentActivity() {
 
         ensureAdminActive()
 
-        val svc = Intent(this, TelemetryService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
+        val hasLocationPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasLocationPerm) {
+            val svc = Intent(this, TelemetryService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
+        } else {
+            Log.w(TAG, "Wstrzymano start usługi TelemetryService. Oczekuję na uprawnienia.")
+        }
 
         setContent {
             var status by remember { mutableStateOf("Init…") }
@@ -166,8 +168,12 @@ class MainActivity : ComponentActivity() {
 
     private fun ensureRuntimePermissions() {
         val toAsk = mutableListOf<String>()
-        val svc = Intent(this, TelemetryService::class.java)
-        if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+
+        val hasLocationPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasLocationPerm) {
+            val svc = Intent(this, TelemetryService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+        }
 
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             toAsk += android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -184,8 +190,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
-
     private fun ensureAdminActive() {
         if (!dpm.isAdminActive(adminComponent)) {
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
@@ -199,6 +203,7 @@ class MainActivity : ComponentActivity() {
     private fun saveToken(context: Context, deviceId: String, token: String) {
         context.getSharedPreferences("mdm_prefs", MODE_PRIVATE).edit { putString("token_$deviceId", token) }
     }
+
     private fun loadToken(context: Context, deviceId: String): String? {
         return context.getSharedPreferences("mdm_prefs", MODE_PRIVATE).getString("token_$deviceId", null)
     }
@@ -278,7 +283,6 @@ class MainActivity : ComponentActivity() {
             "battery" to batteryPct,
             "rooted" to rooted
         ).apply { putAll(locationMap) }
-
 
         val mapType = Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
         return moshi.adapter<Map<String, Any?>>(mapType).toJson(baseMap)
@@ -494,8 +498,6 @@ class MainActivity : ComponentActivity() {
         else emptyMap()
     }
 
-    }
-
     /** ======= UTILS ======= */
 
     private fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -506,4 +508,4 @@ class MainActivity : ComponentActivity() {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return R * c
     }
-
+}
