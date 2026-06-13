@@ -26,8 +26,6 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
             // 1) Whitelist do kiosk-mode
             dpm.setLockTaskPackages(admin, arrayOf(context.packageName))
 
-            // 2) Zablokuj ściąganie status bar
-admin
             // 3) Wyłącz funkcje ekranu blokady (biometria, trust agents, nieodszyfrowane powiadomienia)
             dpm.setKeyguardDisabledFeatures(
                 admin,
@@ -36,8 +34,8 @@ admin
                         DevicePolicyManager.KEYGUARD_DISABLE_UNREDACTED_NOTIFICATIONS or
                         DevicePolicyManager.KEYGUARD_DISABLE_FINGERPRINT
             )
-        } catch (se: SecurityException) {
-            Log.w("MDM", "Brak uses-policy disable-keyguard-features lub nie Device Owner", se)
+        } catch (e: Exception) {
+            Log.w("MDM", "Błąd podczas włączania restrykcji ekranu blokady", e)
         }
     }
 
@@ -52,7 +50,37 @@ admin
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        Log.d(TAG, "Profile provisioning complete")
+
+        // Wyciągnij dane z paczki QR (server_url, enrollment_token)
+        val extras: android.os.PersistableBundle? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(
+                    DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE,
+                    android.os.PersistableBundle::class.java
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE)
+            }
+
+        if (extras != null) {
+            val serverUrl = extras.getString("server_url")
+            val enrollmentToken = extras.getString("enrollment_token")
+            Log.d(TAG, "Provisioning extras: server_url=$serverUrl, token=${!enrollmentToken.isNullOrBlank()}")
+
+            val editor = context.getSharedPreferences("mdm_prefs", Context.MODE_PRIVATE).edit()
+            if (!serverUrl.isNullOrBlank()) editor.putString("server_url", serverUrl)
+            if (!enrollmentToken.isNullOrBlank()) editor.putString("enrollment_token", enrollmentToken)
+            editor.apply()
+        } else {
+            Log.w(TAG, "Brak ADMIN_EXTRAS_BUNDLE w provisioning intent")
+        }
+
+        // Uruchom główną aktywność po zakończeniu provisioningu
+        context.startActivity(
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     @RequiresApi(Build.VERSION_CODES.P)

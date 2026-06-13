@@ -90,6 +90,8 @@ class MainActivity : ComponentActivity() {
     private val fetchMutex = Mutex()
     private var lastCommandVersion: Int = 0
 
+    private val baseUrl: String get() = serverUrl(this)
+
     // Aktywacja admina
     private val activateAdminLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -105,7 +107,7 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("HardwareIds")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "=== START APP (BASE_URL=${Config.BASE_URL}) ===")
+        Log.d(TAG, "=== START APP (url=$baseUrl) ===")
 
         dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
@@ -119,6 +121,9 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences("mdm_prefs", MODE_PRIVATE).edit { putString("device_id", deviceId) }
 
         ensureAdminActive()
+
+        val svc = Intent(this, TelemetryService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
 
         setContent {
             var status by remember { mutableStateOf("Init…") }
@@ -203,11 +208,17 @@ class MainActivity : ComponentActivity() {
     private suspend fun enrollAndReport(deviceId: String): String = try {
         val payloadJson = buildTelemetryJson()
         val mediaType = "application/json".toMediaType()
+        val prefs = getSharedPreferences("mdm_prefs", MODE_PRIVATE)
+        val enrollmentToken = prefs.getString("enrollment_token", null)
 
-        val registerUrl = "${Config.BASE_URL}/device/$deviceId/register"
-        Log.d(TAG, "Enroll -> $registerUrl")
+        val registerUrl = "$baseUrl/device/$deviceId/register"
+        Log.d(TAG, "Enroll -> $registerUrl (enrollment_token=${!enrollmentToken.isNullOrBlank()})")
         val regBody = withContext(Dispatchers.IO) {
-            val req = Request.Builder().url(registerUrl).post(payloadJson.toRequestBody(mediaType)).build()
+            val req = Request.Builder()
+                .url(registerUrl)
+                .post(payloadJson.toRequestBody(mediaType))
+                .apply { enrollmentToken?.let { addHeader("X-Enrollment-Token", it) } }
+                .build()
             http.newCall(req).execute().use { it.body?.string() }
         } ?: return "Brak odpowiedzi przy rejestracji"
 
@@ -215,9 +226,10 @@ class MainActivity : ComponentActivity() {
         val parsed = moshi.adapter<Map<String, Any?>>(mapType).fromJson(regBody) ?: return "Nieparsowalny JSON rejestracji"
         val token = (parsed["token"] as? String) ?: return "Brak tokenu w odpowiedzi"
         saveToken(this, deviceId, token)
+        prefs.edit { remove("enrollment_token") }
 
         // pierwszy report
-        val reportUrl = "${Config.BASE_URL}/device/$deviceId/report"
+        val reportUrl = "$baseUrl/device/$deviceId/report"
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url(reportUrl)
@@ -235,7 +247,7 @@ class MainActivity : ComponentActivity() {
     private suspend fun sendReport(deviceId: String): String = try {
         val token = loadToken(this, deviceId) ?: return "Brak tokenu (report)"
         val mediaType = "application/json".toMediaType()
-        val reportUrl = "${Config.BASE_URL}/device/$deviceId/report"
+        val reportUrl = "$baseUrl/device/$deviceId/report"
         val payloadJson = buildTelemetryJson()
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
@@ -277,7 +289,7 @@ class MainActivity : ComponentActivity() {
     private suspend fun fetchAndApply(deviceId: String): String = fetchMutex.withLock {
         try {
             val token = loadToken(this, deviceId) ?: return@withLock "Brak tokenu, trzeba zarejestrować"
-            val commandUrl = "${Config.BASE_URL}/device/$deviceId/command"
+            val commandUrl = "$baseUrl/device/$deviceId/command"
 
             val body = withContext(Dispatchers.IO) {
                 val req = Request.Builder().url(commandUrl).addHeader("X-Auth-Token", token).build()
@@ -446,8 +458,6 @@ class MainActivity : ComponentActivity() {
             != PackageManager.PERMISSION_GRANTED) return emptyMap()
 
         val fused = LocationServices.getFusedLocationProviderClient(this)
-        val lastLoc = try { fused.lastLocation.await() } catch (_: Exception) { null }
-
 
         // 1) Spróbuj lastLocation przez callback
         val last = withTimeoutOrNull(1500) {

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Urządzenia – MDM{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-phone me-2"></i>Urządzenia <span class="badge bg-secondary">{{ devices|length }}</span></h5>
+  <small class="text-muted">Auto-odświeżanie co 30 s</small>
+</div>
+
+{% if not devices %}
+  <div class="card text-center py-5 text-muted">
+    <i class="bi bi-inbox display-4 mb-2"></i>
+    <p>Brak urządzeń. Uruchom aplikację na telefonie, żeby się zarejestrowała.</p>
+  </div>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-hover bg-white shadow-sm rounded">
+    <thead class="table-dark">
+      <tr>
+        <th>Device ID</th>
+        <th>Status</th>
+        <th>Android</th>
+        <th>Bateria</th>
+        <th>Root</th>
+        <th>Lokalizacja</th>
+        <th>Aktywne komendy</th>
+        <th>Ostatni kontakt</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for d in devices %}
+      <tr>
+        <td><code class="small">{{ d.id[:18] }}…</code></td>
+        <td>
+          {% if d.is_online %}
+            <span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>online</span>
+          {% else %}
+            <span class="badge bg-secondary">offline</span>
+          {% endif %}
+        </td>
+        <td>{{ d.android_version or '—' }}</td>
+        <td>
+          {% if d.battery is not none %}
+            {% if d.battery > 60 %}
+              <i class="bi bi-battery-full text-success"></i>
+            {% elif d.battery > 25 %}
+              <i class="bi bi-battery-half text-warning"></i>
+            {% else %}
+              <i class="bi bi-battery text-danger"></i>
+            {% endif %}
+            {{ d.battery }}%
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if d.rooted %}
+            <span class="badge bg-danger">rooted</span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if d.lat %}
+            <a href="https://maps.google.com/?q={{ d.lat }},{{ d.lon }}" target="_blank" class="small text-decoration-none">
+              <i class="bi bi-geo-alt-fill text-danger"></i>
+              {{ "%.4f"|format(d.lat) }}, {{ "%.4f"|format(d.lon) }}
+            </a>
+          {% else %}<span class="text-muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% set cmd = d.command %}
+          {% if cmd %}
+            {% if cmd.blocked %}<span class="badge bg-danger me-1">BLOCKED</span>{% endif %}
+            {% if cmd.lock %}<span class="badge bg-warning text-dark me-1">LOCK</span>{% endif %}
+            {% if cmd.disable_camera %}<span class="badge bg-secondary me-1">no cam</span>{% endif %}
+            {% if cmd.alarm %}<span class="badge bg-info text-dark me-1">alarm</span>{% endif %}
+            {% if cmd.wipe %}<span class="badge bg-danger me-1">WIPE!</span>{% endif %}
+            {% if not cmd.lock and not cmd.blocked and not cmd.disable_camera and not cmd.alarm and not cmd.wipe %}
+              <span class="text-muted small">brak</span>
+            {% endif %}
+          {% endif %}
+        </td>
+        <td class="small text-muted">
+          {% if d.last_seen %}
+            {{ d.last_seen.strftime('%d.%m %H:%M:%S') }}
+          {% else %}nigdy{% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('device_detail', device_id=d.id) }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-sliders2"></i> Zarządzaj
+          </a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}

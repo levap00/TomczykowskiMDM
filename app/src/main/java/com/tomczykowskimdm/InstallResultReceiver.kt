@@ -52,7 +52,7 @@ class InstallResultReceiver : BroadcastReceiver() {
                 ))
                 val jsonBody = adapter.toJson(reportPayload)
                 val client = OkHttpClient()
-                val url = "${Config.BASE_URL}/device/$deviceId/report-install"
+                val url = "${serverUrl(context)}/device/$deviceId/report-install"
                 val mediaType = "application/json".toMediaType()
                 val request = Request.Builder()
                     .url(url)

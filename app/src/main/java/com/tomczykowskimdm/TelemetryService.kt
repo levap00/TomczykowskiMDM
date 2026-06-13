@@ -13,17 +13,11 @@ import android.content.pm.PackageManager
 import android.location.Location
 import com.google.android.gms.location.*
 import android.os.Build
+import android.annotation.SuppressLint
 import android.provider.Settings
 import androidx.annotation.RequiresPermission
-import com.google.android.gms.location.LocationServices
-import kotlinx.coroutines.tasks.await
-import android.annotation.SuppressLint
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
-import java.io.Serial
-
-
-// UWAGA: if używasz FusedLocationProviderClient, dodaj w build.gradle dependency "com.google.android.gms:play-services-location:<latest>"
+import kotlinx.coroutines.tasks.await
 
 class TelemetryService : Service() {
 
@@ -32,7 +26,6 @@ class TelemetryService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fused: FusedLocationProviderClient
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     override fun onCreate() {
         super.onCreate()
         createNotifChannel()
@@ -62,7 +55,6 @@ class TelemetryService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private suspend fun telemetryLoop() {
         // pętla działająca dopóki Service żyje
         while (scope.isActive) {
@@ -100,11 +92,11 @@ class TelemetryService : Service() {
         } catch (_: Throwable) { null }
     }
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun sendReport(battery: Int?, loc: Location?) {
-        val prefs = getSharedPreferences("mdm", Context.MODE_PRIVATE)
-        val url = URL("http://192.168.100.156:5000/device/$deviceId/report")
-
+        val prefs = getSharedPreferences("mdm_prefs", Context.MODE_PRIVATE)
+        val deviceId = prefs.getString("device_id", null) ?: return
+        val token = prefs.getString("token_$deviceId", null) ?: return
+        val url = URL("${serverUrl(this)}/device/$deviceId/report")
 
         val payload = JSONObject().apply {
             put("battery", battery)
@@ -119,9 +111,10 @@ class TelemetryService : Service() {
         (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Auth-Token", token)
             doOutput = true
             outputStream.use { it.write(payload.toString().toByteArray()) }
-            inputStream.bufferedReader().use { it.readText() } // consume
+            inputStream.bufferedReader().use { it.readText() }
             disconnect()
         }
     }

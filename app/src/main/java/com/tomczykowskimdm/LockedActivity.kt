@@ -141,7 +141,7 @@ class LockedActivity : ComponentActivity() {
                     val token = currentToken(deviceId)
                     if (!deviceId.isNullOrBlank() && !token.isNullOrBlank()) {
                         val req = Request.Builder()
-                            .url("${Config.BASE_URL}/device/$deviceId/command")
+                            .url("${serverUrl(this@LockedActivity)}/device/$deviceId/command")
                             .addHeader("X-Auth-Token", token)
                             .build()
                         withContext(Dispatchers.IO) {

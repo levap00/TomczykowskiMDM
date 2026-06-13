@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}{{ device.id[:16] }}… – MDM{% endblock %}
+
+{% block content %}
+
+<!-- Back link -->
+<a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary mb-3">
+  <i class="bi bi-arrow-left me-1"></i>Wszystkie urządzenia
+</a>
+
+<!-- Device info card -->
+<div class="row mb-4">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong><i class="bi bi-phone me-2"></i>Informacje</strong>
+        {% if device.is_online %}
+          <span class="badge bg-success">online</span>
+        {% else %}
+          <span class="badge bg-secondary">offline</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5 text-muted">Device ID</dt>
+          <dd class="col-7"><code style="word-break:break-all">{{ device.id }}</code></dd>
+
+          <dt class="col-5 text-muted">Android</dt>
+          <dd class="col-7">{{ device.android_version or '—' }}</dd>
+
+          <dt class="col-5 text-muted">Bateria</dt>
+          <dd class="col-7">
+            {% if device.battery is not none %}
+              {% if device.battery > 60 %}<i class="bi bi-battery-full text-success"></i>
+              {% elif device.battery > 25 %}<i class="bi bi-battery-half text-warning"></i>
+              {% else %}<i class="bi bi-battery text-danger"></i>{% endif %}
+              {{ device.battery }}%
+            {% else %}—{% endif %}
+          </dd>
+
+          <dt class="col-5 text-muted">Root</dt>
+          <dd class="col-7">
+            {% if device.rooted %}<span class="badge bg-danger">TAK</span>
+            {% else %}<span class="text-muted">nie</span>{% endif %}
+          </dd>
+
+          {% if device.lat %}
+          <dt class="col-5 text-muted">Lokalizacja</dt>
+          <dd class="col-7">
+            <a href="https://maps.google.com/?q={{ device.lat }},{{ device.lon }}" target="_blank">
+              {{ "%.5f"|format(device.lat) }}, {{ "%.5f"|format(device.lon) }}
+            </a>
+            {% if device.location_accuracy %}
+              <span class="text-muted">(±{{ device.location_accuracy|int }}m)</span>
+            {% endif %}
+          </dd>
+          {% endif %}
+
+          <dt class="col-5 text-muted">Ostatni kontakt</dt>
+          <dd class="col-7">{{ device.last_seen.strftime('%Y-%m-%d %H:%M:%S') if device.last_seen else '—' }}</dd>
+
+          <dt class="col-5 text-muted">Rejestracja</dt>
+          <dd class="col-7">{{ device.registered_at.strftime('%Y-%m-%d %H:%M') if device.registered_at else '—' }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Command panel -->
+{% set cmd = device.command %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex align-items-center">
+    <strong><i class="bi bi-terminal me-2"></i>Komendy</strong>
+    {% if cmd %}
+      <span class="badge bg-light text-dark border ms-2">wersja {{ cmd.command_version }}</span>
+    {% endif %}
+    {% if cmd and cmd.updated_at %}
+      <small class="text-muted ms-auto">ostatnia zmiana: {{ cmd.updated_at.strftime('%H:%M:%S %d.%m') }}</small>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('set_command', device_id=device.id) }}" id="cmdForm">
+      <div class="row g-3">
+
+        <!-- Blokada -->
+        <div class="col-md-4">
+          <div class="card h-100 border-warning">
+            <div class="card-header bg-warning bg-opacity-25 fw-semibold small">
+              <i class="bi bi-lock me-1"></i>Blokada
+            </div>
+            <div class="card-body">
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" name="lock" id="chkLock"
+                  {% if cmd and cmd.lock %}checked{% endif %}>
+                <label class="form-check-label" for="chkLock">Zablokuj ekran (lock)</label>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="blocked" id="chkBlocked"
+                  {% if cmd and cmd.blocked %}checked{% endif %}>
+                <label class="form-check-label" for="chkBlocked">Zablokuj dotyk (blocked)</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ograniczenia -->
+        <div class="col-md-4">
+          <div class="card h-100 border-secondary">
+            <div class="card-header bg-secondary bg-opacity-10 fw-semibold small">
+              <i class="bi bi-slash-circle me-1"></i>Ograniczenia
+            </div>
+            <div class="card-body">
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" name="disable_camera" id="chkCam"
+                  {% if cmd and cmd.disable_camera %}checked{% endif %}>
+                <label class="form-check-label" for="chkCam">Wyłącz kamerę</label>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="disable_tethering" id="chkTether"
+                  {% if cmd and cmd.disable_tethering %}checked{% endif %}>
+                <label class="form-check-label" for="chkTether">Wyłącz tethering</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alarm -->
+        <div class="col-md-4">
+          <div class="card h-100 border-info">
+            <div class="card-header bg-info bg-opacity-10 fw-semibold small">
+              <i class="bi bi-bell me-1"></i>Alarm
+            </div>
+            <div class="card-body">
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" name="alarm" id="chkAlarm"
+                  {% if cmd and cmd.alarm %}checked{% endif %}>
+                <label class="form-check-label" for="chkAlarm">Włącz alarm</label>
+              </div>
+              <label class="form-label small text-muted">Czas trwania (sekundy)</label>
+              <input type="number" class="form-control form-control-sm" name="alarm_interval_sec"
+                value="{{ (cmd.alarm_interval_sec if cmd and cmd.alarm_interval_sec else 12) }}"
+                min="1" max="3600">
+            </div>
+          </div>
+        </div>
+
+        <!-- APK install -->
+        <div class="col-md-8">
+          <div class="card h-100">
+            <div class="card-header fw-semibold small">
+              <i class="bi bi-box-arrow-in-down me-1"></i>Instalacja APK
+            </div>
+            <div class="card-body">
+              <div class="mb-2">
+                <label class="form-label small text-muted">URL pliku APK</label>
+                <input type="url" class="form-control form-control-sm" name="install_apk_url"
+                  value="{{ cmd.install_apk_url or '' if cmd else '' }}"
+                  placeholder="https://example.com/app.apk">
+              </div>
+              <div>
+                <label class="form-label small text-muted">SHA-256 checksum</label>
+                <input type="text" class="form-control form-control-sm font-monospace" name="install_apk_checksum"
+                  value="{{ cmd.install_apk_checksum or '' if cmd else '' }}"
+                  placeholder="e3b0c44298fc1c149afb…">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Blocked apps -->
+        <div class="col-md-4">
+          <div class="card h-100">
+            <div class="card-header fw-semibold small">
+              <i class="bi bi-app me-1"></i>Zablokowane aplikacje
+            </div>
+            <div class="card-body">
+              <label class="form-label small text-muted">Package names (jedna na linię)</label>
+              <textarea class="form-control form-control-sm font-monospace" name="blocked_apps" rows="5"
+                placeholder="com.example.app&#10;com.another.app">{% if cmd and cmd.blocked_apps %}{% for pkg in cmd.blocked_apps|from_json %}{{ pkg }}
+{% endfor %}{% endif %}</textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Geofence -->
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header fw-semibold small">
+              <i class="bi bi-geo me-1"></i>Geofence
+            </div>
+            <div class="card-body">
+              <div class="row g-2">
+                <div class="col-4">
+                  <label class="form-label small text-muted">Szerokość (lat)</label>
+                  <input type="number" class="form-control form-control-sm" name="geofence_lat" step="any"
+                    value="{{ cmd.geofence_lat or '' if cmd else '' }}" placeholder="52.2297">
+                </div>
+                <div class="col-4">
+                  <label class="form-label small text-muted">Długość (lon)</label>
+                  <input type="number" class="form-control form-control-sm" name="geofence_lon" step="any"
+                    value="{{ cmd.geofence_lon or '' if cmd else '' }}" placeholder="21.0122">
+                </div>
+                <div class="col-4">
+                  <label class="form-label small text-muted">Promień (m)</label>
+                  <input type="number" class="form-control form-control-sm" name="geofence_radius"
+                    value="{{ cmd.geofence_radius or 100 if cmd else 100 }}" min="10">
+                </div>
+              </div>
+              <small class="text-muted">Pozostaw puste, żeby wyłączyć geofence.</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wipe – danger zone -->
+        <div class="col-md-6">
+          <div class="card border-danger">
+            <div class="card-header bg-danger bg-opacity-10 fw-semibold small text-danger">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i>Strefa niebezpieczna
+            </div>
+            <div class="card-body">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input border-danger" type="checkbox" name="wipe" id="chkWipe"
+                  {% if cmd and cmd.wipe %}checked{% endif %}>
+                <label class="form-check-label fw-bold text-danger" for="chkWipe">
+                  FACTORY RESET (wipe)
+                </label>
+              </div>
+              <small class="text-muted">Nieodwracalne. Telefon zostanie wyczyszczony przy następnym połączeniu.</small>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /row -->
+
+      <div class="mt-4 d-flex gap-2 align-items-center">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-send me-1"></i>Zastosuj komendy
+        </button>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Anuluj</a>
+        <div class="ms-auto">
+          <form method="post" action="{{ url_for('delete_device', device_id=device.id) }}"
+                onsubmit="return confirm('Na pewno usunąć urządzenie {{ device.id[:16] }}…?')">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-trash me-1"></i>Usuń urządzenie
+            </button>
+          </form>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Install reports -->
+{% if reports %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header">
+    <strong><i class="bi bi-clock-history me-2"></i>Historia instalacji APK</strong>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Data</th><th>URL</th><th>Wynik</th><th>Komunikat</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td class="small text-nowrap">{{ r.reported_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="small text-truncate" style="max-width:220px" title="{{ r.apk_url }}">
+            {{ r.apk_url or '—' }}
+          </td>
+          <td>
+            {% if r.success %}
+              <span class="badge bg-success">OK</span>
+            {% else %}
+              <span class="badge bg-danger">błąd</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ r.message or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("cmdForm").addEventListener("submit", function (e) {
+  if (document.getElementById("chkWipe").checked) {
+    if (!confirm("UWAGA: FACTORY RESET jest zaznaczony!\n\nTelefon zostanie nieodwracalnie wyczyszczony.\n\nKontynuować?")) {
+      e.preventDefault();
+    }
+  }
+});
+</script>
+{% endblock %}
